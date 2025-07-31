@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify
+from flask_caching import Cache
 from flask_cors import CORS
 import mysql.connector 
 from datetime import datetime
@@ -7,6 +8,8 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+#configuration cache 
+cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache','CACHE_DEFAULT_TIMEOUT': 300})
 # Database configuration 
 DB_CONFIG = {
     'host': 'localhost',
@@ -58,6 +61,11 @@ def index():
 @app.route('/api/tasks', methods=['GET']) #api calls and CRUD operation using Mysql
 def get_tasks():
     filter_type = request.args.get('filter', 'all')
+
+    cache_key = f"tasks_{filter_type}"
+    cached_tasks = cache.get(cache_key)
+    if cached_tasks:
+        return jsonify(cached_tasks)
     
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
@@ -72,8 +80,14 @@ def get_tasks():
     tasks = cursor.fetchall()
     cursor.close()
     connection.close()
-    
+    cache.set(cache_key, tasks)
     return jsonify(tasks)
+
+def clear_cache():
+    """Clear all cache related to tasks"""
+    cache.delete("tasks_all")
+    cache.delete("tasks_completed")
+    cache.delete("tasks_pending")
 
 @app.route('/api/tasks', methods=['POST'])
 def create_task():
@@ -96,7 +110,7 @@ def create_task():
     task_id = cursor.lastrowid
     cursor.close()
     connection.close()
-    
+    clear_cache()  # Invalidate cache after data change
     return jsonify({'id': task_id, 'message': 'Task created successfully'}), 201
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
@@ -138,7 +152,7 @@ def update_task(task_id):
     
     cursor.close()
     connection.close()
-    
+    clear_cache()  # Invalidate cache after data change
     return jsonify({'message': 'Task updated successfully'})
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
@@ -156,7 +170,7 @@ def delete_task(task_id):
     
     cursor.close()
     connection.close()
-    
+    clear_cache()  # Invalidate cache after data change    
     return jsonify({'message': 'Task deleted successfully'})
 
 if __name__ == '__main__':
